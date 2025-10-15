@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>งูกินหาง (Snake Game)</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Noto Sans Thai',sans-serif;background:#0f172a;color:#e5e7eb}
+    .wrap{max-width:900px;margin:24px auto;padding:0 16px}
+    header{text-align:center;margin-bottom:12px}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:16px;box-shadow:0 12px 24px rgba(0,0,0,.25);margin-bottom:16px}
+    .hud{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+    .hud .grow{margin-left:auto}
+    .btn{background:#22c55e;border:none;color:#06120a;border-radius:12px;padding:8px 14px;font-weight:800;cursor:pointer}
+    .btn:hover{filter:brightness(1.05)}
+    .game{display:grid;place-items:center;position:relative}
+    canvas{background:#0b1020;border-radius:12px;width:min(92vw,520px);height:min(92vw,520px);image-rendering:pixelated}
+    .overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(2,6,23,.72);backdrop-filter:blur(2px)}
+    .overlay.hidden{display:none}
+    .panel{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:20px;text-align:center;max-width:420px}
+    .controls{display:grid;place-items:center}
+    .dpad{display:grid;grid-template-rows:auto auto auto;gap:8px}
+    .dpad button{background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:12px;padding:12px 18px;font-size:20px}
+    .dpad .mid{display:flex;gap:8px;justify-content:center}
+    kbd{background:#0b1220;border:1px solid #1f2937;border-radius:6px;padding:0 6px}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <h1>งูกินหาง (Snake)</h1>
+      <p class="sub">เล่นด้วยปุ่มลูกศร / WASD หรือปุ่มบนจอมือถือ</p>
+    </header>
+
+    <section class="hud card">
+      <div>คะแนน: <strong id="score">0</strong></div>
+      <div>ความเร็ว: <strong id="speed">1x</strong></div>
+      <div class="grow">กด <kbd>Space</kbd> เพื่อพัก/เล่นต่อ • <button id="restart" class="btn">เริ่มใหม่</button></div>
+    </section>
+
+    <section class="game card">
+      <canvas id="board" width="480" height="480" aria-label="Snake game board"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="panel">
+          <h2 id="stateTitle">กดเริ่มเพื่อเล่น</h2>
+          <p id="stateDesc">ใช้ปุ่มลูกศร/WASD เพื่อบังคับงู</p>
+          <button id="start" class="btn">เริ่มเล่น</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="controls card">
+      <div class="dpad">
+        <button id="up" aria-label="ขึ้น">▲</button>
+        <div class="mid">
+          <button id="left" aria-label="ซ้าย">◀</button>
+          <button id="right" aria-label="ขวา">▶</button>
+        </div>
+        <button id="down" aria-label="ลง">▼</button>
+      </div>
+    </section>
+
+    <footer>
+      <small>HTML + CSS + JavaScript • พร้อมสำหรับ GitHub Pages</small>
+    </footer>
+  </main>
+
+  <script>
+  (() => {
+    const SIZE = 24; // กริด 24x24
+    const CELL = 20; // พิกเซลต่อช่อง
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const startBtn = document.getElementById('start');
+    const restartBtn = document.getElementById('restart');
+    const scoreEl = document.getElementById('score');
+    const speedEl = document.getElementById('speed');
+    const titleEl = document.getElementById('stateTitle');
+    const descEl = document.getElementById('stateDesc');
+
+    // mobile controls
+    const btnUp = document.getElementById('up');
+    const btnDown = document.getElementById('down');
+    const btnLeft = document.getElementById('left');
+    const btnRight = document.getElementById('right');
+
+    let state = {
+      dir: {x: 1, y: 0},
+      nextDir: {x: 1, y: 0},
+      snake: [{x: 8, y: 12},{x:7,y:12},{x:6,y:12}],
+      food: {x: 16, y: 12},
+      score: 0,
+      speed: 6,
+      playing: false,
+      loopId: null
+    };
+
+    function rnd(n){ return Math.floor(Math.random() * n); }
+    function same(a,b){ return a.x===b.x && a.y===b.y; }
+
+    function placeFood(){
+      let f;
+      do { f = {x:rnd(SIZE), y:rnd(SIZE)}; }
+      while (state.snake.some(s=>same(s,f)));
+      state.food = f;
+    }
+
+    function drawCell(x,y,color){
+      ctx.fillStyle = color;
+      ctx.fillRect(x*CELL, y*CELL, CELL-1, CELL-1);
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      // food
+      drawCell(state.food.x, state.food.y, '#ef4444');
+      // snake
+      state.snake.forEach((p,i)=>{
+        drawCell(p.x, p.y, i===0 ? '#22c55e' : '#16a34a');
+      });
+    }
+
+    function step(){
+      state.dir = state.nextDir; // อัปเดตทิศ
+      const head = state.snake[0];
+      const nx = head.x + state.dir.x;
+      const ny = head.y + state.dir.y;
+
+      // ชนขอบ / ตัวเอง
+      if (nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE || state.snake.some((s,i)=> i>0 && s.x===nx && s.y===ny)) {
+        gameOver();
+        return;
+      }
+
+      const newHead = {x:nx, y:ny};
+      state.snake.unshift(newHead);
+
+      // กินอาหาร
+      if (same(newHead, state.food)){
+        state.score += 1;
+        scoreEl.textContent = state.score;
+        if (state.score % 5 === 0 && state.speed < 14) {
+          state.speed += 1;
+          speedEl.textContent = (state.speed/6).toFixed(1) + 'x';
+        }
+        placeFood();
+      } else {
+        state.snake.pop();
+      }
+
+      draw();
+    }
+
+    function loop(){
+      const interval = 1000 / state.speed;
+      let last = performance.now();
+      function frame(now){
+        if (!state.playing) return;
+        if (now - last >= interval){ step(); last = now; }
+        state.loopId = requestAnimationFrame(frame);
+      }
+      state.loopId = requestAnimationFrame(frame);
+    }
+
+    function start(){
+      state = { dir:{x:1,y:0}, nextDir:{x:1,y:0}, snake:[{x:8,y:12},{x:7,y:12},{x:6,y:12}], food:{x:16,y:12}, score:0, speed:6, playing:true, loopId:null };
+      scoreEl.textContent = '0';
+      speedEl.textContent = '1x';
+      placeFood();
+      draw();
+      overlay.classList.add('hidden');
+      loop();
+    }
+
+    function pauseToggle(){
+      state.playing = !state.playing;
+      if (state.playing){ overlay.classList.add('hidden'); loop(); }
+      else { titleEl.textContent='พักเกม'; descEl.textContent='กด Space เพื่อเล่นต่อ'; document.getElementById('start').textContent='เล่นต่อ'; overlay.classList.remove('hidden'); }
+    }
+
+    function gameOver(){
+      state.playing = false;
+      cancelAnimationFrame(state.loopId);
+      titleEl.textContent = 'จบเกม! คะแนน: ' + state.score;
+      descEl.textContent = 'กด เริ่มใหม่ เพื่อเล่นอีกครั้ง';
+      document.getElementById('start').textContent = 'เริ่มใหม่';
+      overlay.classList.remove('hidden');
+    }
+
+    function setDir(x,y){
+      if (state.dir.x + x === 0 && state.dir.y + y === 0) return; // กันเลี้ยวกลับ
+      state.nextDir = {x,y};
+    }
+
+    // keyboard controls
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if (k==='arrowup'||k==='w') setDir(0,-1);
+      else if (k==='arrowdown'||k==='s') setDir(0,1);
+      else if (k==='arrowleft'||k==='a') setDir(-1,0);
+      else if (k==='arrowright'||k==='d') setDir(1,0);
+      else if (k===' '){ e.preventDefault(); if (overlay.classList.contains('hidden')) pauseToggle(); else start(); }
+    });
+
+    // mobile buttons
+    document.getElementById('up').onclick = () => setDir(0,-1);
+    document.getElementById('down').onclick = () => setDir(0,1);
+    document.getElementById('left').onclick = () => setDir(-1,0);
+    document.getElementById('right').onclick = () => setDir(1,0);
+
+    startBtn.onclick = start;
+    restartBtn.onclick = start;
+
+    // initial draw
+    draw();
+  })();
+  </script>
+</body>
+</html>
